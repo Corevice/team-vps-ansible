@@ -1,0 +1,49 @@
+---
+# F23: postfix relay → AWS SES SMTP endpoint
+- name: postfix + SASL packages
+  apt:
+    name: [postfix, libsasl2-modules, ca-certificates]
+    state: present
+
+- name: postfix main.cf relay 設定
+  ansible.builtin.blockinfile:
+    path: /etc/postfix/main.cf
+    marker: "# {mark} ANSIBLE MANAGED — SES RELAY"
+    block: |
+      relayhost = [{{ ses_smtp_host }}]:{{ ses_smtp_port }}
+      smtp_use_tls = yes
+      smtp_sasl_auth_enable = yes
+      smtp_sasl_security_options = noanonymous
+      smtp_sasl_password_maps = hash:/etc/postfix/sasl_passwd
+      smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt
+      smtp_tls_security_level = encrypt
+      header_size_limit = 4096000
+      sender_canonical_classes = envelope_sender, header_sender
+      sender_canonical_maps = static:{{ ses_from_address }}
+      smtp_header_checks = regexp:/etc/postfix/header_checks
+  notify: reload postfix
+
+- name: SASL credential
+  copy:
+    dest: /etc/postfix/sasl_passwd
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      [{{ ses_smtp_host }}]:{{ ses_smtp_port }} {{ vault.ses_smtp_username }}:{{ vault.ses_smtp_password }}
+  notify: rebuild sasl_passwd
+
+- name: From header rewrite
+  copy:
+    dest: /etc/postfix/header_checks
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      /^From:.*/ REPLACE From: Codens VPS Alert <{{ ses_from_address }}>
+
+- name: postfix enable + start
+  systemd:
+    name: postfix
+    enabled: true
+    state: started

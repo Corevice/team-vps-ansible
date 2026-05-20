@@ -1,0 +1,49 @@
+---
+# WARP Virtual IP — loopback に warp_virtual_ip/32 を付与し、
+# cloudflared の warp-routing から SSH (etc.) に届くようにする。
+#
+# Flow:
+#   [Phone WARP] -> [CF Edge] -> [cloudflared on VPS]
+#     -> warp-routing forwards to {{ warp_virtual_ip }}:22 (loopback)
+#     -> sshd (listens on 0.0.0.0:22) accepts
+#
+# Persistence: systemd-networkd の drop-in を使わず、シンプルに
+#   /etc/networkd-dispatcher/routable.d/ の代わりに
+#   /etc/systemd/system/codens-warp-vip.service で起動時に ip addr add する。
+
+- name: Skip if warp_virtual_ip is not set
+  ansible.builtin.meta: end_host
+  when: warp_virtual_ip is not defined
+
+- name: codens-warp-vip.service (add virtual IP to loopback on boot)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/codens-warp-vip.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Codens WARP virtual IP ({{ warp_virtual_ip }}/32) on loopback
+      After=network-pre.target
+      Before=network.target cloudflared.service
+      Wants=network-pre.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/sbin/ip address add {{ warp_virtual_ip }}/32 dev lo
+      ExecStop=/usr/sbin/ip address del {{ warp_virtual_ip }}/32 dev lo
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: reload systemd + restart warp-vip
+
+- name: Enable + start codens-warp-vip.service
+  ansible.builtin.systemd:
+    name: codens-warp-vip.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# Note: UFW は inactive (Cloud Firewall で保護)、かつ warp traffic は loopback 経由で
+# sshd に到達するため、host 側 firewall 設定は不要。

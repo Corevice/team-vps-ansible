@@ -1,0 +1,12 @@
+---
+# v8 簡易版: SSH bind 変更と Cloud Firewall 操作は別 playbook (11-sshd-lockdown.yml, 未実装) に分離
+# このロールでは「誰も止まらない安全な hardening」のみ実施:
+# - sysctl kernel hardening
+# - unattended-upgrades (security patch 自動適用)
+# - auditd (監査ログ)
+# - fail2ban (sshd brute-force 保護、port 22 + 53829)
+
+- import_tasks: sysctl.yml
+- import_tasks: unattended-upgrades.yml
+- import_tasks: auditd.yml
+- import_tasks: fail2ban.yml

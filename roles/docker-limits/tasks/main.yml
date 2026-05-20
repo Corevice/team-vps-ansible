@@ -1,0 +1,55 @@
+---
+# S6: Docker daemon defaults — log rotation + sane defaults to prevent runaway containers
+# Notes:
+#   - We don't set hard cpu/mem ceilings here (default-cpus/default-memory) because
+#     legitimate dev workloads vary widely. We DO cap log size.
+#   - Members can still launch containers with --cpus / -m flags; daemon defaults
+#     don't enforce, only log rotation does.
+#   - "ip": "127.0.0.1" forces published ports to bind to localhost only by default.
+#     Members can still opt-in to public bind via `-p 0.0.0.0:8080:8080`. This is a
+#     defense-in-depth layer in case Contabo Cloud Firewall drifts (which has happened
+#     before — see project memory `project_contabo_firewall_drift.md` 2026-04-23).
+#     Local-PC access workflow: `ssh -L 8080:localhost:8080 codens-vps` (see
+#     docs/mobile-ssh-guide.md "Connecting to a VPS-side service from your laptop").
+
+- name: /etc/docker exists
+  file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: /etc/docker/daemon.json — log rotation + live-restore + ulimits
+  copy:
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {
+        "ip": "127.0.0.1",
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "50m",
+          "max-file": "5",
+          "compress": "true"
+        },
+        "live-restore": true,
+        "default-ulimits": {
+          "nofile": {
+            "Name": "nofile",
+            "Soft": 65535,
+            "Hard": 65535
+          }
+        },
+        "default-shm-size": "256M",
+        "storage-driver": "overlay2"
+      }
+  notify: restart docker
+
+- name: docker enable + start
+  systemd:
+    name: docker
+    enabled: true
+    state: started

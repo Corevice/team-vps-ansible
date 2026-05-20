@@ -1,0 +1,33 @@
+# Ansible inventory — Codens VPS 11 台
+#
+# このファイルは members.yml から自動生成も可能 (scripts/generate-inventory.py)
+# 手動編集する場合のフォーマット例:
+
+all:
+  vars:
+    ansible_user: ansible
+    ansible_python_interpreter: /usr/bin/python3
+    # bootstrap (Step A) では port 22 + ops IP から直接 SSH
+    # harden 後 (Step C 以降) は ssh_args を CF Tunnel ProxyCommand に切り替える
+    # ansible_ssh_common_args は host_vars/<vps>.yml で個別指定
+  children:
+    vps:
+      hosts:
+        vps-alice:
+          ansible_host: XX.XX.XX.XX           # public IPv4 (members.yml.alice.public_ipv4)
+          owner: alice
+          owner_email: alice@corevice.com
+          contabo_instance_id: vps-instance-id
+        vps-bob:
+          ansible_host: XX.XX.XX.XX
+          owner: bob
+          owner_email: bob@corevice.com
+          contabo_instance_id: vps-instance-id
+        # ... 残り 9 台
+
+      vars:
+        # CF Tunnel 経由 SSH 用の ProxyCommand (harden 後に有効化)
+        # Step A-B の bootstrap では ansible_ssh_common_args="" にして直接 SSH
+        ansible_ssh_common_args: >-
+          -o ProxyCommand="cloudflared access ssh --hostname ssh-{{ owner }}.{{ domain }}"
+        domain: vps.example.com   # ← A-6 で購入したドメイン

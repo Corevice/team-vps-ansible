@@ -1,0 +1,6 @@
+---
+- name: Install dev tools (mise + docker + claude code + zsh + CLI)
+  hosts: vps
+  become: true
+  roles:
+    - { role: dev-tools, tags: dev-tools }

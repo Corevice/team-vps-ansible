@@ -1,0 +1,6 @@
+---
+- name: reload systemd + restart warp-vip
+  ansible.builtin.systemd:
+    name: codens-warp-vip.service
+    daemon_reload: true
+    state: restarted

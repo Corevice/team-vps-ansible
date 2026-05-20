@@ -1,0 +1,29 @@
+---
+- name: Ensure owner user exists
+  user:
+    name: "{{ owner }}"
+    shell: /bin/bash
+    create_home: yes
+    state: present
+
+- name: Install code-server (Coder 公式インストーラ、apt repo 経由)
+  ansible.builtin.shell: |
+    curl -fsSL https://code-server.dev/install.sh | sh
+  args:
+    creates: /usr/bin/code-server
+
+- name: code-server systemd unit (per-owner、--auth none、127.0.0.1 bind)
+  template:
+    src: code-server.service.j2
+    dest: /etc/systemd/system/code-server.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart code-server
+
+- name: code-server enable + start
+  systemd:
+    name: code-server
+    enabled: true
+    state: started
+    daemon_reload: yes

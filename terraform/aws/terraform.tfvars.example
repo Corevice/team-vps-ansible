@@ -1,0 +1,2 @@
+# Copy to terraform.tfvars and fill in real values.
+# terraform.tfvars is gitignored (never commit secrets).

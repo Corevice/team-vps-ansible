@@ -1,0 +1,169 @@
+---
+# supply-chain-monitor — early detection for npm / VS Code extension
+# supply-chain attacks. Detect-don't-block by design (impact zero on dev
+# experience). See files/98-supply-chain.rules for what the audit rules
+# actually watch, and the README of this role for rollout / triage notes.
+#
+# Layers:
+#   1. auditd rules (98-supply-chain.rules) — watch npm/vscode/cred paths
+#   2. credential perms hardening (chmod 700/600 on dotdirs)
+#   3. npm advisory shell hook (warns on unsigned packages, never blocks)
+#   4. code-server settings (Workspace Trust on, ext auto-update off)
+
+# ---------------------------------------------------------------------------
+# 1. Audit rules (system-wide watches)
+# ---------------------------------------------------------------------------
+
+- name: list non-system user homes
+  shell: |
+    awk -F: '$3 >= 1000 && $3 < 65534 && $6 ~ "^/home/" {print $6}' /etc/passwd
+  register: user_homes
+  changed_when: false
+
+- name: enumerate existing per-user watch paths (auditd -w refuses missing paths)
+  # auditd's -w watch rule fails to load the entire file if any single
+  # watched path is missing. Build dynamic per-user rules using only paths
+  # that actually exist on this host. Also include root paths conditionally.
+  shell: |
+    set -e
+    declare -a candidates=(
+      "/root/.npm:sc_npm_install:wa"
+      "/root/.vscode-server/extensions:sc_vscode_ext:wa"
+      "/root/.config/code-server:sc_vscode_ext:wa"
+      "/root/.ssh:sc_creds_read:r"
+      "/root/.aws:sc_creds_read:r"
+      "/root/.gnupg:sc_creds_read:r"
+      "/root/.config/cloudflared:sc_creds_read:r"
+      "/root/.bashrc:sc_persistence:wa"
+      "/root/.profile:sc_persistence:wa"
+      "/usr/local/lib/node_modules:sc_npm_install:wa"
+      "/usr/lib/node_modules:sc_npm_install:wa"
+    )
+    {% for home in user_homes.stdout_lines %}
+    candidates+=(
+      "{{ home }}/.npm:sc_npm_install:wa"
+      "{{ home }}/.vscode-server/extensions:sc_vscode_ext:wa"
+      "{{ home }}/.config/code-server:sc_vscode_ext:wa"
+      "{{ home }}/.ssh:sc_creds_read:r"
+      "{{ home }}/.aws:sc_creds_read:r"
+      "{{ home }}/.gnupg:sc_creds_read:r"
+      "{{ home }}/.config/cloudflared:sc_creds_read:r"
+      "{{ home }}/.bashrc:sc_persistence:wa"
+      "{{ home }}/.profile:sc_persistence:wa"
+    )
+    {% endfor %}
+    for entry in "${candidates[@]}"; do
+      IFS=":" read -r path tag perm <<< "$entry"
+      if [ -e "$path" ]; then
+        printf -- "-w %-50s -p %-2s -k %s\n" "$path" "$perm" "$tag"
+      fi
+    done
+  args:
+    executable: /bin/bash
+  register: per_user_rules
+  changed_when: false
+
+- name: enumerate existing execve dirs (npm caches, for sc_native_exec)
+  shell: |
+    set -e
+    for d in /usr/local/lib/node_modules /root/.npm; do
+      if [ -d "$d" ]; then
+        printf -- "-a always,exit -F arch=b64 -S execve -F dir=%s -k sc_native_exec\n" "$d"
+      fi
+    done
+    {% for home in user_homes.stdout_lines %}
+    if [ -d "{{ home }}/.npm" ]; then
+      printf -- "-a always,exit -F arch=b64 -S execve -F dir={{ home }}/.npm -k sc_native_exec\n"
+    fi
+    {% endfor %}
+  args:
+    executable: /bin/bash
+  register: native_exec_rules
+  changed_when: false
+
+- name: supply-chain audit rules (base + dynamic per-user)
+  copy:
+    dest: /etc/audit/rules.d/98-supply-chain.rules
+    owner: root
+    group: root
+    mode: "0640"
+    content: |
+      # Supply-chain attack early detection (managed by ansible role)
+      # Base watches (always-present paths)
+      {{ lookup('file', '98-supply-chain.rules') }}
+
+      # --- Per-user/path watches (only paths existing at apply time) ---
+      {{ per_user_rules.stdout }}
+
+      # --- execve under npm caches (only dirs existing at apply time) ---
+      {{ native_exec_rules.stdout }}
+  notify: restart auditd
+
+- name: tighten credential directory perms (per user)
+  file:
+    path: "{{ item[0] }}{{ item[1] }}"
+    state: directory
+    mode: "0700"
+    owner: "{{ item[0] | basename }}"  # ensure user (not root) owns their cred dirs
+    group: "{{ item[0] | basename }}"
+  loop: "{{ user_homes.stdout_lines | product(['/.ssh','/.aws','/.gnupg','/.config/cloudflared']) | list }}"
+  failed_when: false  # dir may not exist — that's fine
+  loop_control:
+    label: "{{ item[0] }}{{ item[1] }}"
+
+- name: tighten root credential dirs
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop:
+    - /root/.ssh
+    - /root/.aws
+    - /root/.gnupg
+    - /root/.config/cloudflared
+  failed_when: false
+
+# ---------------------------------------------------------------------------
+# 3. npm advisory shell hook
+# ---------------------------------------------------------------------------
+
+- name: npm audit-signatures advisory hook (system-wide profile.d)
+  copy:
+    src: npm-audit-signatures-advisory.sh
+    dest: /etc/profile.d/codens-npm-audit-advisory.sh
+    owner: root
+    group: root
+    mode: "0644"
+
+# ---------------------------------------------------------------------------
+# 4. code-server settings (Workspace Trust + disable auto-update)
+# ---------------------------------------------------------------------------
+
+# ansible (uid 1000) is the deploy automation user, not a human dev — skip it.
+# Only the owner of the VPS (e.g. sayyid, gabri) runs code-server.
+- name: identify human (non-ansible) user homes
+  set_fact:
+    human_homes: "{{ user_homes.stdout_lines | reject('search', '/ansible$') | list }}"
+
+- name: ensure code-server User dir exists per human user
+  file:
+    path: "{{ item }}/.local/share/code-server/User"
+    state: directory
+    owner: "{{ item | basename }}"
+    group: "{{ item | basename }}"
+    mode: "0755"
+  loop: "{{ human_homes }}"
+  loop_control:
+    label: "{{ item }}/.local/share/code-server/User"
+
+- name: deploy code-server settings (initial only, never overwrite user edits)
+  template:
+    src: code-server-settings.json.j2
+    dest: "{{ item }}/.local/share/code-server/User/settings.json"
+    owner: "{{ item | basename }}"
+    group: "{{ item | basename }}"
+    mode: "0644"
+    force: false
+  loop: "{{ human_homes }}"
+  loop_control:
+    label: "{{ item }}/.local/share/code-server/User/settings.json"

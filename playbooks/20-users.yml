@@ -1,0 +1,44 @@
+---
+# Owner user 作成 + ssh public key 配置
+# host_vars/<vps>.yml の owner_ssh_pubkey を読む (keys/<slug>.pub から自動取得済)
+#
+# ポリシー (ops 確認済):
+#   - member は自分の user で SSH (各人専用 ed25519 鍵)
+#   - member は sudo NOPASSWD で root 相当の操作可
+#   - ただし root user での SSH login は不可 (root authorized_keys は ops の鍵のみ)
+#   - 退職時: keys/<slug>.* と 1Password item を revoke + ansible-playbook で authorized_keys から削除
+
+- name: Per-VPS owner user setup
+  hosts: vps
+  become: true
+  tasks:
+    - name: Owner user
+      user:
+        name: "{{ owner }}"
+        shell: /bin/bash
+        groups: sudo
+        create_home: yes
+        state: present
+
+    - name: Owner sudo NOPASSWD
+      copy:
+        dest: "/etc/sudoers.d/95-{{ owner }}"
+        owner: root
+        group: root
+        mode: "0440"
+        content: |
+          {{ owner }} ALL=(ALL) NOPASSWD:ALL
+        validate: visudo -cf %s
+
+    - name: Owner authorized_keys
+      authorized_key:
+        user: "{{ owner }}"
+        key: "{{ owner_ssh_pubkey }}"
+        state: present
+        exclusive: yes  # owner の key 以外を排除 (退職時 revocation の保証)
+
+    - name: Owner zsh as default shell (optional)
+      user:
+        name: "{{ owner }}"
+        shell: /bin/zsh
+      when: change_default_shell_to_zsh | default(false)

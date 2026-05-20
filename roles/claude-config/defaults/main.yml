@@ -1,0 +1,15 @@
+---
+# 配布対象のパス (roles/claude-config/files/claude-home/ 配下の相対パス)
+# 空欄 OK (source が無ければ skip)
+claude_config_items:
+  - settings.json       # 共有 settings (hooks / env / permissions 等)
+  - CLAUDE.md           # 共有 global memory
+  - README-llmgw.md     # Qwen gateway / escalate-to-claude 使い分けの reference
+  - commands/           # 共有 slash commands
+  - skills/             # 共有 skills (playwright-cli / code-nav / escalate-to-claude)
+  - scripts/            # 共有 hook 実体 (secret-scan / output-truncate / claude-qwen)
+  - hooks/              # 2026-04-26: Qwen 性能補強 hooks (verify-write / plan-first-reminder / escalate-detector / pre-warm-qwen-gateway)
+  - plugins/            # 共有 plugins (!! secret が含まれないことを確認 !!)
+
+# owner の ~/.claude 以下の書き込み先 (通常変更しない)
+claude_home_base: "/home/{{ owner }}/.claude"

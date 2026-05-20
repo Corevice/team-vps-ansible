@@ -1,0 +1,15 @@
+[Unit]
+Description=Codens Docker Firewall (DOCKER-USER chain rules)
+Documentation=https://docs.docker.com/network/iptables/
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/codens-docker-firewall start
+ExecStop=/usr/local/bin/codens-docker-firewall stop
+
+[Install]
+WantedBy=multi-user.target

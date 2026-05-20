@@ -1,0 +1,172 @@
+---
+- name: Common apt packages
+  apt:
+    name: "{{ apt_packages_common }}"
+    state: present
+    update_cache: yes
+
+- name: Docker apt repo signing key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: Docker apt repo
+  ansible.builtin.apt_repository:
+    repo: "deb [arch={{ ansible_architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ os_codename }} stable"
+    filename: docker
+    state: present
+
+- name: Docker packages
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: yes
+
+- name: Owner can run docker
+  user:
+    name: "{{ owner }}"
+    groups: docker
+    append: yes
+
+- name: GitHub CLI apt repo
+  ansible.builtin.shell: |
+    out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg
+    cat $out | dd of=/etc/apt/keyrings/githubcli-archive-keyring.gpg
+    chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list
+  args:
+    creates: /etc/apt/sources.list.d/github-cli.list
+
+- name: gh package
+  apt:
+    name: gh
+    state: present
+    update_cache: yes
+
+- name: mise install (公式スクリプト) for owner
+  become: true
+  become_user: "{{ owner }}"
+  ansible.builtin.shell: |
+    curl -fsSL https://mise.run | sh
+  args:
+    creates: "/home/{{ owner }}/.local/bin/mise"
+
+- name: mise activate in .bashrc / .zshrc
+  become: true
+  become_user: "{{ owner }}"
+  ansible.builtin.lineinfile:
+    path: "/home/{{ owner }}/{{ item }}"
+    line: 'eval "$(~/.local/bin/mise activate {{ item | basename | regex_replace("^.", "") | regex_replace("rc$", "") }})"'
+    create: yes
+  loop:
+    - .bashrc
+    - .zshrc
+
+- name: mise global tools (node, python, go)
+  become: true
+  become_user: "{{ owner }}"
+  ansible.builtin.shell: |
+    ~/.local/bin/mise use -g {{ item }}
+  loop: "{{ mise_global_tools }}"
+  args:
+    creates: "/home/{{ owner }}/.config/mise/config.toml"
+
+- name: Claude Code (Anthropic 公式 installer)
+  become: true
+  become_user: "{{ owner }}"
+  ansible.builtin.shell: |
+    curl -fsSL https://claude.ai/install.sh | bash
+  args:
+    creates: "/home/{{ owner }}/.local/bin/claude"
+    executable: /bin/bash
+
+# ===== OpenAI Codex CLI (owner user, via mise node) =====
+
+- name: "Resolve mise-managed node bin path (for Codex install)"
+  become: true
+  become_user: "{{ owner }}"
+  ansible.builtin.shell: |
+    ~/.local/bin/mise which node 2>/dev/null | xargs dirname
+  args:
+    executable: /bin/bash
+  register: mise_node_bin_for_codex
+  changed_when: false
+
+- name: "OpenAI Codex CLI (owner-scoped npm install)"
+  become: true
+  become_user: "{{ owner }}"
+  ansible.builtin.shell: |
+    export PATH="{{ mise_node_bin_for_codex.stdout }}:$HOME/.local/bin:$PATH"
+    if command -v codex >/dev/null 2>&1; then
+      echo "already installed: $(codex --version 2>&1 | head -1)"
+      exit 0
+    fi
+    npm install -g @openai/codex 2>&1
+  args:
+    executable: /bin/bash
+  register: codex_install
+  changed_when: "'added ' in codex_install.stdout or 'changed ' in codex_install.stdout"
+
+- name: "Verify Codex CLI"
+  become: true
+  become_user: "{{ owner }}"
+  ansible.builtin.shell: |
+    export PATH="{{ mise_node_bin_for_codex.stdout }}:$HOME/.local/bin:$PATH"
+    codex --version 2>&1 | head -1
+  args:
+    executable: /bin/bash
+  register: codex_version
+  changed_when: false
+
+- name: "Codex version"
+  debug:
+    var: codex_version.stdout
+
+- name: starship prompt
+  ansible.builtin.shell: |
+    curl -sS https://starship.rs/install.sh | sh -s -- --yes
+  args:
+    creates: /usr/local/bin/starship
+
+# AWS CLI v2 — installed system-wide so all VPS owners can use it.
+# v2 (vs apt's v1) supports SSO, modern auth, and current API features.
+- name: Ensure unzip (required by awscli installer extraction)
+  apt:
+    name: unzip
+    state: present
+
+- name: Check awscli v2 already installed
+  ansible.builtin.shell: aws --version 2>&1 | head -1
+  register: awscli_check
+  changed_when: false
+  failed_when: false
+
+- name: Download awscli v2 installer (only when not present or v1)
+  ansible.builtin.unarchive:
+    src: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+    dest: /tmp
+    remote_src: yes
+  when: awscli_check.rc != 0 or 'aws-cli/2' not in awscli_check.stdout
+
+- name: Install awscli v2
+  ansible.builtin.shell: |
+    /tmp/aws/install --update
+  args:
+    creates: /usr/local/bin/aws
+  when: awscli_check.rc != 0 or 'aws-cli/2' not in awscli_check.stdout
+
+- name: Verify awscli v2
+  ansible.builtin.shell: aws --version 2>&1 | head -1
+  register: awscli_version
+  changed_when: false
+
+- name: aws version
+  debug:
+    var: awscli_version.stdout

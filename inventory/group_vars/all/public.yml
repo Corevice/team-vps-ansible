@@ -1,0 +1,77 @@
+# 全 VPS 共通の non-sensitive 変数
+# Sensitive な値 (password, token, key) は all.vault.yml に置いて ansible-vault で暗号化
+
+# ドメイン (A-6 で購入したもの)
+domain: vps.example.com   # CHANGE: your VPS domain   # TODO: 実際の購入ドメインに変更
+
+# Cloudflare
+cloudflare_account_id: XXXXXXXX   # TODO: members.yml.common.cloudflare_account_id
+
+# AWS
+aws_region: us-east-1
+aws_account_id: "123456789012"  # CHANGE: your AWS account ID   # Purple Codens
+
+# step-ca
+step_ca_url: https://step-ca.internal.example    # TODO: 実際の step-ca host
+step_ca_fingerprint: TODO_INSERT_AFTER_CA_BOOTSTRAP
+
+# Roles Anywhere
+roles_anywhere:
+  trust_anchor_arn: arn:aws:rolesanywhere:us-east-1:123456789012:trust-anchor/TODO
+  profile_arn:      arn:aws:rolesanywhere:us-east-1:123456789012:profile/TODO
+  role_arn:         arn:aws:iam::123456789012:role/s3-log-writer
+
+# S3
+s3_logs_bucket: codens-vps-logs-prod
+s3_logs_kms_key_alias: alias/codens-vps-logs-key
+
+# SES
+ses_smtp_host: email-smtp.us-east-1.amazonaws.com
+ses_smtp_port: 587
+ses_from_address: alerts@corevice.com
+ses_alert_recipient: ops@example.com
+
+# Contabo Cloud Firewall
+contabo_firewall_id: TODO_FROM_TERRAFORM_OUTPUT
+
+# Operator
+operator_email: ops@example.com
+operator_management_ip: XX.XX.XX.XX   # TODO: A-3 で確定した static IP
+
+# OS
+os_distribution: ubuntu
+os_version: "24.04"
+os_codename: noble
+timezone: Asia/Tokyo
+
+# mise / dev tools
+mise_global_tools:
+  - "node@lts"
+  - "python@3.12"
+  - "go@latest"
+
+apt_packages_common:
+  - ufw
+  - fail2ban
+  - unattended-upgrades
+  - auditd
+  - audispd-plugins
+  - chrony
+  - etckeeper
+  - logrotate
+  - htop
+  - btop
+  - jq
+  - git
+  - tmux
+  - mosh                      # モバイル回線変動に強い SSH (WARP + 併用でさらに安定)
+  - zsh
+  - ripgrep
+  - fd-find
+  - bat
+  - eza
+  - direnv
+  - postfix
+  - libsasl2-modules
+  - ca-certificates
+  - swaks

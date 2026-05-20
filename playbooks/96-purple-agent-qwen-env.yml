@@ -1,0 +1,8 @@
+---
+- name: Pre-stage Qwen gateway env file for purple-agent.service
+  hosts: vps
+  become: true
+  vars_files:
+    - ../group_vars/vps/qwen-keys.yml
+  roles:
+    - { role: purple-agent-qwen-env, tags: purple-agent-qwen-env }

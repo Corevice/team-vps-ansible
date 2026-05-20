@@ -1,0 +1,6 @@
+---
+- name: Install cloudflared (apt hold for version pinning, F3)
+  hosts: vps
+  become: true
+  roles:
+    - { role: cloudflare-tunnel, tags: cloudflared }

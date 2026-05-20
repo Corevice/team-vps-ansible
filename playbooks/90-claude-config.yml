@@ -1,0 +1,26 @@
+---
+# Claude Code 共通 config を 21 VPS の owner の ~/.claude/ に配布
+#
+# 事前準備:
+#   roles/claude-config/files/claude-home/ 配下に配布したい物を置く
+#     - settings.json (オプション)
+#     - CLAUDE.md (オプション)
+#     - commands/<command>.md
+#     - skills/<skill>/
+#     - plugins/ (※ secret 含まないこと)
+#
+# 実行:
+#   ansible-playbook -i inventory/hosts.yml playbooks/90-claude-config.yml \
+#     --vault-password-file .vault_pass \
+#     --extra-vars '{"ansible_ssh_common_args": "-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/tmp/ansible_known_hosts"}'
+
+- name: Deploy Claude Code shared config
+  hosts: vps
+  become: true
+  vars_files:
+    # Per-VPS Qwen gateway keys (group_vars/vps/qwen-keys.yml exists but the
+    # autoloader skipped it on initial vps invocation — explicit vars_files
+    # ensures the dict is always available at task time).
+    - ../group_vars/vps/qwen-keys.yml
+  roles:
+    - { role: claude-config, tags: claude-config }

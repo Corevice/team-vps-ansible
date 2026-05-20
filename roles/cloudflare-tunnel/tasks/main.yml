@@ -1,0 +1,60 @@
+---
+- name: Cloudflare apt repo signing key
+  ansible.builtin.get_url:
+    url: https://pkg.cloudflare.com/cloudflare-main.gpg
+    dest: /usr/share/keyrings/cloudflare-main.gpg
+    mode: "0644"
+
+- name: Cloudflare apt repo
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared {{ os_codename }} main"
+    filename: cloudflared
+    state: present
+
+- name: Install cloudflared
+  apt:
+    name: cloudflared
+    state: present
+    update_cache: yes
+
+- name: F3 — apt-mark hold cloudflared (auto-update を防ぐ)
+  ansible.builtin.dpkg_selections:
+    name: cloudflared
+    selection: hold
+
+- name: /etc/cloudflared 作成
+  file:
+    path: /etc/cloudflared
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: tunnel credentials.json (Vault から)
+  copy:
+    dest: /etc/cloudflared/creds.json
+    owner: root
+    group: root
+    mode: "0600"
+    content: "{{ vault.tunnel_credentials[inventory_hostname].credentials_json }}"
+
+- name: cloudflared config
+  template:
+    src: config.yml.j2
+    dest: /etc/cloudflared/config.yml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart cloudflared
+
+- name: cloudflared systemd service install
+  command: cloudflared service install
+  args:
+    creates: /etc/systemd/system/cloudflared.service
+
+- name: cloudflared enable + start
+  systemd:
+    name: cloudflared
+    enabled: true
+    state: started
+    daemon_reload: yes

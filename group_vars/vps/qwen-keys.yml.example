@@ -1,0 +1,18 @@
+---
+# Per-VPS Qwen Gateway API keys. Used by claude-qwen.sh + nginx auth map.
+#
+# Distribute these keys via ansible-vault:
+#   cp qwen-keys.yml.example qwen-keys.yml
+#   <edit qwen-keys.yml with real keys>
+#   ansible-vault encrypt qwen-keys.yml --vault-password-file .vault_pass
+#
+# Generate a random key for each user:
+#   echo "sk-codens-vps-${USER}-$(openssl rand -hex 12)"
+#
+# The actual key value is opaque — nginx maps it to an `owner` label via
+# `map $http_x_api_key $vps_owner`. Choose any naming scheme that doesn't
+# leak personal info.
+
+qwen_vps_keys:
+  example-user-1: sk-codens-vps-example-user-1-CHANGE_ME_RANDOM_HEX
+  example-user-2: sk-codens-vps-example-user-2-CHANGE_ME_RANDOM_HEX

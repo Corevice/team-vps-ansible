@@ -1,0 +1,93 @@
+---
+# Step A: 初回 root + password で接続して、ansible user を作成
+# この playbook は Cloud Firewall の bootstrap rule (port 22 を ops IP から allow) 経由で動く
+#
+# 実行コマンド例:
+#   # bootstrap allow rule を有効化
+#   cd terraform/contabo && terraform apply -var=enable_bootstrap_ssh=true
+#   # 初期 root pw で接続 (host_vars の vault_initial_root_pw を使う)
+#   ansible-playbook -i inventory/hosts.yml playbooks/00-bootstrap.yml \
+#     --extra-vars "ansible_user=root" \
+#     --extra-vars "ansible_ssh_pass={{ vault.contabo_initial_root_pw_default }}" \
+#     --extra-vars "ansible_ssh_common_args=" \
+#     --ask-vault-pass
+
+- name: Bootstrap initial Ansible user + root SSH key
+  hosts: vps
+  become: true
+  gather_facts: false
+
+  pre_tasks:
+    - name: Wait for SSH
+      wait_for_connection:
+        timeout: 60
+
+    - name: Gather facts
+      setup:
+
+  tasks:
+    - name: Set timezone
+      timezone:
+        name: "{{ timezone }}"
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      register: apt_update
+      until: apt_update is success
+      retries: 15
+      delay: 30
+
+    - name: Install minimum packages
+      apt:
+        name: [python3, python3-apt, sudo, openssh-server]
+        state: present
+
+    - name: Create ansible group
+      group:
+        name: ansible
+        state: present
+
+    - name: Create ansible user
+      user:
+        name: ansible
+        group: ansible
+        groups: sudo
+        shell: /bin/bash
+        create_home: yes
+        state: present
+
+    - name: Sudo NOPASSWD for ansible user
+      copy:
+        dest: /etc/sudoers.d/90-ansible
+        owner: root
+        group: root
+        mode: "0440"
+        content: |
+          ansible ALL=(ALL) NOPASSWD:ALL
+        validate: visudo -cf %s
+
+    - name: Install ansible user authorized_keys (ops only)
+      ansible.posix.authorized_key:
+        user: ansible
+        key: "{{ operator_ssh_pubkey }}"
+        state: present
+
+    - name: Install root authorized_keys (ops only — member は root SSH 不可)
+      ansible.posix.authorized_key:
+        user: root
+        key: "{{ operator_ssh_pubkey }}"
+        state: present
+
+    # exclusive は ansible.posix 2.x で挙動変化。退職時 revocation は playbooks/20-users.yml で実施
+
+    - name: Lock root password (key-only)
+      user:
+        name: root
+        password_lock: yes
+
+    - name: Confirm ansible user can sudo
+      command: id
+      become: true
+      become_user: root

@@ -1,0 +1,37 @@
+---
+# aws-broker: keep AWS credentials inside a docker volume so AI agents
+# (Claude Code / Qwen) running on this VPS cannot read them via the host
+# filesystem. The wrapper at /usr/local/bin/aws-broker is the only path
+# the user interacts with.
+#
+# Distribution scope: just the mechanism (image + wrapper). Each user
+# imports their own profiles via `aws-broker import-from-host` or
+# `aws-broker login <profile>`.
+
+- name: Pull aws-cli image (public.ecr.aws/aws-cli/aws-cli:latest)
+  ansible.builtin.command: docker pull public.ecr.aws/aws-cli/aws-cli:latest
+  register: aws_broker_pull
+  changed_when: "'Downloaded newer image' in aws_broker_pull.stdout or 'Pull complete' in aws_broker_pull.stdout"
+  # Public ECR rate-limits anonymous pulls. With 24 hosts firing in parallel
+  # the first ~13 succeed and the rest get "toomanyrequests: Rate exceeded".
+  # Retry with backoff so the slower hosts queue behind the limit reset.
+  retries: 6
+  delay: 45
+  until: aws_broker_pull.rc == 0
+
+- name: Install aws-broker wrapper script
+  ansible.builtin.copy:
+    src: aws-broker
+    dest: /usr/local/bin/aws-broker
+    owner: root
+    group: root
+    mode: "0755"
+
+# Convenience symlink for muscle memory: typing `aws` still works, but
+# routes through the broker. The original aws CLI (installed by dev-tools
+# role at /usr/local/bin/aws) gets shadowed by our wrapper since this
+# alias lives in the user's ~/.local/bin which is earlier on PATH for
+# interactive shells.
+#
+# We don't auto-install this alias — leave it as opt-in (some users may
+# legitimately want direct aws access). Documented in CLAUDE.md.

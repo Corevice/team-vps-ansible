@@ -1,0 +1,15 @@
+# Per-host variables. Filename must match the host name in hosts.yml
+# (e.g. inventory/host_vars/vps-yourname.yml).
+#
+# This is an example template — copy to vps-<slug>.yml (without .example
+# suffix) for each member and fill in the real values. Do NOT commit
+# real host_vars/*.yml files — they're gitignored.
+
+owner: example-slug              # short slug used in hostname (vps-<slug>)
+owner_email: user@example.com    # contact email for this VPS
+owner_ssh_pubkey: "ssh-ed25519 AAAA... user@example.com"
+operator_ssh_pubkey: "ssh-ed25519 AAAA... ops@example.com (deploy key)"
+operator_management_ip: 203.0.113.1   # operator's static IP for SSH allowlist
+timezone: Asia/Tokyo
+vps_id: 1                        # unique 1-254, used for WARP virtual IP
+warp_virtual_ip: 10.200.0.1      # 10.200.0.<vps_id>

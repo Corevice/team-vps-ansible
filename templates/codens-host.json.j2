@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "host_id": "{{ inventory_hostname }}",
+  "team_id": "corevice-main",
+  "owner_user_id": "{{ owner }}",
+  "owner_email": "{{ owner_email }}",
+  "region": "eu-central",
+  "provider": "contabo",
+  "lifecycle_state": "active",
+  "provisioned_at": "{{ ansible_date_time.iso8601 | regex_replace('T.*', '') }}",
+  "os": "ubuntu-{{ os_version }}",
+  "tags": ["dev-vps", "phase-1"]
+}

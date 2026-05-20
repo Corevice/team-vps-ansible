@@ -1,0 +1,143 @@
+#!/bin/bash
+# Codens VPS log shipping (F4, F7, F22)
+# Claude Code + auditd ログを S3 に append-only で push
+#
+# 設計:
+#   - F4: per-file try、失敗は failed/ に退避し次回再送
+#   - F4: 24h 超過の failed file は破棄
+#   - F7: schema-v1/ prefix + epoch suffix で at-least-once delivery
+#   - F22: credential 失敗時にも全 metric フィールドを書き出し silent pass を防ぐ
+
+# set -e は使わない (per-file try のため)
+set -u  # 未定義変数は fail (typo 防止)
+
+# ===== Constants =====
+FAILED_DIR="/var/lib/codens-log-ship/failed"
+METRICS_DIR="/var/lib/node_exporter/textfile_collector"
+LOG_DIR="/var/log/codens-log-ship"
+HOST_META="/etc/codens-host.json"
+ENV_FILE="/etc/codens/log-ship.env"
+S3_BUCKET="codens-vps-logs-prod"
+
+# ===== Setup =====
+mkdir -p "$FAILED_DIR" "$METRICS_DIR" "$LOG_DIR"
+
+# Load env (TRUST_ANCHOR_ARN, PROFILE_ARN, ROLE_ARN)
+if [ ! -f "$ENV_FILE" ]; then
+  echo "FATAL: missing $ENV_FILE" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+
+HOST_ID=$(jq -r .host_id "$HOST_META" 2>/dev/null || echo "unknown")
+NOW_EPOCH=$(date -u +%s)
+NOW_ISO=$(date -u -Iseconds)
+TODAY=$(date -u +%F)
+
+# ===== Helper: write all metrics in one shot =====
+write_metrics() {
+  local cred_ok="$1"
+  local success="$2"
+  local failed="$3"
+  local actual_queue
+  actual_queue=$(find "$FAILED_DIR" -type f 2>/dev/null | wc -l)
+  cat > "${METRICS_DIR}/codens_log_ship.prom" <<EOF
+codens_log_ship_credential_acquired ${cred_ok}
+codens_log_ship_success_total ${success}
+codens_log_ship_failed_total ${failed}
+codens_log_ship_last_run_epoch ${NOW_EPOCH}
+codens_log_ship_failed_queue_size ${actual_queue}
+EOF
+}
+
+# ===== Step 1: Roles Anywhere credential 取得 =====
+if ! AWS_CREDS_JSON=$(/usr/local/bin/aws_signing_helper credential-process \
+    --certificate /etc/codens/vps-cert.pem \
+    --private-key /etc/codens/vps-key.pem \
+    --trust-anchor-arn "${TRUST_ANCHOR_ARN}" \
+    --profile-arn "${PROFILE_ARN}" \
+    --role-arn "${ROLE_ARN}" 2>>"${LOG_DIR}/credential-error.log"); then
+  echo "$NOW_ISO credential acquisition failed" >> "${LOG_DIR}/error.log"
+  # F22: credential 失敗時も全フィールド出力 (silent pass 防止)
+  write_metrics 0 0 0
+  exit 1
+fi
+
+export AWS_ACCESS_KEY_ID
+export AWS_SECRET_ACCESS_KEY
+export AWS_SESSION_TOKEN
+AWS_ACCESS_KEY_ID=$(echo "$AWS_CREDS_JSON" | jq -r .AccessKeyId)
+AWS_SECRET_ACCESS_KEY=$(echo "$AWS_CREDS_JSON" | jq -r .SecretAccessKey)
+AWS_SESSION_TOKEN=$(echo "$AWS_CREDS_JSON" | jq -r .SessionToken)
+
+SUCCESS=0
+FAILED=0
+
+# ===== Helper: upload one file =====
+upload_one() {
+  local src="$1"
+  local key="$2"
+  local meta="$3"
+  if aws s3 cp "$src" "s3://${S3_BUCKET}/${key}" \
+      --metadata "$meta" \
+      --storage-class STANDARD 2>>"${LOG_DIR}/upload-error.log"; then
+    SUCCESS=$((SUCCESS + 1))
+    rm -f "${FAILED_DIR}/$(basename "$src")"  # success → failed/ から削除
+  else
+    FAILED=$((FAILED + 1))
+    cp "$src" "${FAILED_DIR}/$(basename "$src").${NOW_EPOCH}"
+    echo "$NOW_ISO FAILED $key" >> "${LOG_DIR}/error.log"
+  fi
+}
+
+# ===== Step 2: Claude Code logs =====
+for user_home in /home/*/; do
+  user=$(basename "$user_home")
+  [ -d "${user_home}.claude/projects" ] || continue
+
+  while IFS= read -r f; do
+    epoch=$(date -u +%s)
+    key="schema-v1/${HOST_ID}/${user}/claude-code/${TODAY}/$(basename "$f").${epoch}.jsonl"
+    meta="host_id=${HOST_ID},user=${user},uploaded_at_utc=${NOW_ISO},schema_version=1.0"
+    upload_one "$f" "$key" "$meta"
+  done < <(find "${user_home}.claude/projects" -name "*.jsonl" -mmin -65 2>/dev/null)
+done
+
+# ===== Step 3: auditd logs =====
+while IFS= read -r f; do
+  epoch=$(date -u +%s)
+  key="schema-v1/${HOST_ID}/_audit/${TODAY}/$(basename "$f").${epoch}"
+  meta="host_id=${HOST_ID},source=auditd,uploaded_at_utc=${NOW_ISO},schema_version=1.0"
+  upload_one "$f" "$key" "$meta"
+done < <(find /var/log/audit -name "audit.log*" -mmin -65 2>/dev/null)
+
+# ===== Step 4: Retry failed/ (24h 超過は破棄) =====
+find "$FAILED_DIR" -type f -mmin +1440 -delete
+
+for failed_file in "$FAILED_DIR"/*; do
+  [ -f "$failed_file" ] || continue
+  base=$(basename "$failed_file" | sed 's/\.[0-9]*$//')
+  epoch=$(date -u +%s)
+  key="schema-v1/${HOST_ID}/_retry/${TODAY}/${base}.${epoch}"
+  meta="host_id=${HOST_ID},retry=true,uploaded_at_utc=${NOW_ISO},schema_version=1.0"
+  upload_one "$failed_file" "$key" "$meta"
+done
+
+# ===== Step 5: Metrics + summary =====
+write_metrics 1 "$SUCCESS" "$FAILED"
+echo "$NOW_ISO success=${SUCCESS} failed=${FAILED}" >> "${LOG_DIR}/summary.log"
+
+# ===== Step 6: ship-status JSON to S3 =====
+status_json=$(jq -nc \
+  --arg host_id "$HOST_ID" \
+  --arg last_run "$NOW_ISO" \
+  --argjson success "$SUCCESS" \
+  --argjson failed "$FAILED" \
+  '{host_id: $host_id, last_run: $last_run, success: $success, failed: $failed}')
+
+echo "$status_json" | aws s3 cp - \
+  "s3://${S3_BUCKET}/schema-v1/_meta/ship-status/${HOST_ID}/${TODAY}.json" \
+  --content-type application/json 2>>"${LOG_DIR}/upload-error.log" || true
+
+exit 0

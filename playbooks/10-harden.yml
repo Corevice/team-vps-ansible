@@ -1,0 +1,11 @@
+---
+# Phase I (v8 簡易版): 安全な system hardening のみ
+# sysctl / unattended-upgrades / auditd / fail2ban を全台に適用
+# SSH bind 変更 + Cloud Firewall 操作は別 playbook (11-sshd-lockdown.yml) で後日対応
+
+- name: Partial Harden (sysctl, unattended-upgrades, auditd, fail2ban)
+  hosts: vps
+  become: true
+
+  roles:
+    - { role: harden, tags: harden }

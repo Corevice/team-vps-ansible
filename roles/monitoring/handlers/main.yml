@@ -1,0 +1,15 @@
+---
+- name: rebuild sasl_passwd
+  ansible.builtin.shell: |
+    postmap /etc/postfix/sasl_passwd && chmod 600 /etc/postfix/sasl_passwd*
+  notify: reload postfix
+
+- name: reload postfix
+  systemd:
+    name: postfix
+    state: reloaded
+
+- name: restart monit
+  systemd:
+    name: monit
+    state: restarted

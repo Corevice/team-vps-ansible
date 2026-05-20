@@ -1,0 +1,42 @@
+# Managed by Ansible — 手動編集禁止
+# F2/F11: 段階適用フローで sshd_listen_addresses / sshd_password_authentication が変化
+
+Port 22
+Port 53829
+{% for addr in sshd_listen_addresses %}
+ListenAddress {{ addr }}
+{% endfor %}
+
+# Authentication
+PermitRootLogin prohibit-password
+PasswordAuthentication {{ sshd_password_authentication }}
+PubkeyAuthentication yes
+ChallengeResponseAuthentication no
+KbdInteractiveAuthentication no
+UsePAM yes
+
+# Hardening
+MaxAuthTries 3
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax 2
+PermitEmptyPasswords no
+X11Forwarding no
+AllowAgentForwarding yes
+AllowTcpForwarding yes
+
+# Allowed users (owner + ansible + root for emergency)
+AllowUsers {{ owner }} ansible root
+
+# Logging
+SyslogFacility AUTH
+LogLevel VERBOSE
+
+# Subsystems
+Subsystem sftp /usr/lib/openssh/sftp-server
+
+# Cipher / KEX (modern only)
+KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes256-ctr
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
+HostKeyAlgorithms ssh-ed25519,rsa-sha2-512,rsa-sha2-256

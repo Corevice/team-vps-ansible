@@ -1,0 +1,26 @@
+# Supply-chain attack early detection — auditd watch rules (base set)
+# Loaded by augenrules after harden role's 99-codens.rules.
+#
+# IMPORTANT: auditd -w fails to load the ENTIRE rule file if any single
+# watched path doesn't exist. Therefore this base file contains only paths
+# that are guaranteed to exist on every Codens VPS. Per-user paths
+# (~/.npm, ~/.vscode-server, ~/.ssh, etc) are appended at apply time by
+# tasks/main.yml after checking existence on the target.
+#
+# Tags (-k <tag>) — filter in CloudWatch by tag:
+#   sc_npm_install     : writes under npm caches / global node_modules
+#   sc_vscode_ext      : writes to VS Code / code-server extension dirs
+#   sc_creds_read      : non-owner reads of credential dirs
+#   sc_persistence     : new systemd units, crontabs, login scripts
+#   sc_native_exec     : execve under npm caches (postinstall scripts)
+
+# --- Persistence (these paths always exist on Ubuntu) ---
+-w /etc/systemd/system              -p wa -k sc_persistence
+-w /etc/cron.d                      -p wa -k sc_persistence
+-w /etc/cron.daily                  -p wa -k sc_persistence
+-w /etc/cron.hourly                 -p wa -k sc_persistence
+-w /var/spool/cron                  -p wa -k sc_persistence
+-w /etc/profile.d                   -p wa -k sc_persistence
+
+# --- Cloudflared system config (always exists post-bootstrap) ---
+-w /etc/cloudflared                 -p r  -k sc_creds_read

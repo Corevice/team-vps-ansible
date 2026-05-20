@@ -1,0 +1,21 @@
+tunnel: {{ vault.tunnel_credentials[inventory_hostname].tunnel_id }}
+credentials-file: /etc/cloudflared/creds.json
+no-autoupdate: true
+
+{% if warp_virtual_ip is defined %}
+# WARP-to-Tunnel: Zero Trust WARP クライアント (native SSH アプリ等) から
+# この VPS を Private Network 経由で到達可能にする。
+# route {{ warp_virtual_ip }}/32 は terraform/cloudflare/ 側で登録。
+warp-routing:
+  enabled: true
+
+{% endif %}
+ingress:
+  - hostname: vps-{{ owner }}.{{ domain }}
+    service: http://127.0.0.1:8080
+    originRequest:
+      noTLSVerify: true
+      connectTimeout: 30s
+  - hostname: ssh-{{ owner }}.{{ domain }}
+    service: ssh://127.0.0.1:22
+  - service: http_status:404

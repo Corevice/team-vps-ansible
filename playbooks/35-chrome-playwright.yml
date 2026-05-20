@@ -1,0 +1,9 @@
+---
+# Install headless Chrome + @playwright/cli on all VPS
+# playwright-cli は owner user 配下にインストールされる (mise node via bash -lc)
+
+- name: Install Chrome + playwright-cli
+  hosts: vps
+  become: true
+  roles:
+    - { role: chrome-playwright, tags: chrome-playwright }

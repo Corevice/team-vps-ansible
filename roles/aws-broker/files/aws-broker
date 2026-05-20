@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# aws-broker — run aws-cli through a docker container with the host's
+# ~/.aws/ bind-mounted in. The point is *not* physical isolation — host
+# ~/.aws/ is still readable by the user — but to (1) keep AI agents
+# routed through a single auditable wrapper and (2) keep the door open
+# to swap the bind-mount for a more locked-down store later (sealed
+# volume, short-lived STS, vault, etc.) without changing the AI-facing
+# UX.
+#
+# Usage:
+#   aws-broker login <profile>                # SSO login (device code flow)
+#   aws-broker <profile> <aws args...>        # run aws-cli as <profile>
+#   aws-broker list                           # list configured profiles
+#   aws-broker config                         # edit ~/.aws/config in container
+#   aws-broker shell                          # drop into a shell in the container
+#
+# Why bind-mount instead of an isolated docker volume:
+#   - One source of truth: bare aws and broker see the same ~/.aws/
+#   - New profiles added either way (bare `aws sso login` OR `aws-broker login`)
+#     are immediately visible everywhere
+#   - No periodic re-import/sync required
+#   - User decided 2026-04-30 against chmod 000 ~/.aws (would block adding
+#     profiles via bare aws), making the volume's only differentiator
+#     (root-owned, user-unreadable) moot
+
+set -eu
+
+IMAGE="${AWS_BROKER_IMAGE:-public.ecr.aws/aws-cli/aws-cli:latest}"
+HOST_AWS_DIR="${AWS_BROKER_HOST_DIR:-${HOME}/.aws}"
+
+usage() {
+  sed -n '3,18p' "$0"
+}
+
+ensure_docker() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "aws-broker: docker not installed" >&2
+    exit 127
+  fi
+  if ! docker info >/dev/null 2>&1; then
+    echo "aws-broker: cannot connect to docker daemon (is the user in the docker group?)" >&2
+    exit 1
+  fi
+}
+
+ensure_host_dir() {
+  if [ ! -d "$HOST_AWS_DIR" ]; then
+    mkdir -p "$HOST_AWS_DIR"
+    chmod 700 "$HOST_AWS_DIR"
+  fi
+}
+
+# Common docker-run prelude. Args after this are the aws-cli args.
+#
+# --user $(id -u):$(id -g): files written by the container (e.g. new SSO
+# cache during `aws sso login`) end up owned by the host user, so bare
+# aws-cli on the host can also read them.
+#
+# -e HOME=/awsroot + bind ~/.aws at /awsroot/.aws: aws-cli looks at
+# $HOME/.aws/ for config/credentials/sso/cache. By rooting HOME at a
+# path we control we avoid /root permission issues from the --user flag.
+docker_run_aws() {
+  local tty_flags="-i"
+  [ -t 0 ] && [ -t 1 ] && tty_flags="-it"
+  exec docker run --rm $tty_flags \
+    --user "$(id -u):$(id -g)" \
+    -v "$HOST_AWS_DIR":/awsroot/.aws \
+    -v "$PWD":/work:rw \
+    -w /work \
+    -e HOME=/awsroot \
+    -e AWS_PAGER="" \
+    "$@"
+}
+
+case "${1:-}" in
+  ""|"-h"|"--help"|"help")
+    usage
+    exit 0
+    ;;
+  login)
+    ensure_docker
+    ensure_host_dir
+    PROFILE="${2:?Usage: aws-broker login <profile>}"
+    docker_run_aws "$IMAGE" sso login --profile "$PROFILE"
+    ;;
+  list)
+    ensure_docker
+    ensure_host_dir
+    if [ ! -f "$HOST_AWS_DIR/config" ]; then
+      echo "(no profiles configured — run: aws-broker config, or aws-broker login <profile>)"
+      exit 0
+    fi
+    grep -E '^\[' "$HOST_AWS_DIR/config" \
+      | sed -E 's/\[profile (.+)\]/\1/; s/\[(.+)\]/\1/'
+    ;;
+  config)
+    ensure_docker
+    ensure_host_dir
+    # Use whichever editor the host has — config is a plain file on host.
+    "${EDITOR:-vi}" "$HOST_AWS_DIR/config"
+    ;;
+  shell)
+    ensure_docker
+    ensure_host_dir
+    docker_run_aws --entrypoint /bin/sh "$IMAGE"
+    ;;
+  *)
+    ensure_docker
+    ensure_host_dir
+    PROFILE="$1"
+    shift
+    docker_run_aws -e AWS_PROFILE="$PROFILE" "$IMAGE" "$@"
+    ;;
+esac

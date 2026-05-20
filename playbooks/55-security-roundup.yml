@@ -1,0 +1,13 @@
+---
+# S2 + S3 + S6 ＋ docker / claude-config を一括適用
+# (S11 = secret scan hook と RTK-like / code-nav skill / output style は claude-config に同梱)
+
+- name: Security & token-saver roundup (S2/S3/S6 + claude-config)
+  hosts: vps
+  become: true
+  roles:
+    - { role: docker-limits, tags: docker-limits }     # S6 (log rotation + 127.0.0.1 default bind)
+    - { role: docker-firewall, tags: docker-firewall } # DOCKER-USER chain で外部 NIC 遮断 (compose 0.0.0.0 対策)
+    - { role: harden, tags: ['harden', 'fail2ban'] }    # S3 (fail2ban recidive 追加)
+    - { role: claude-autoupdate, tags: claude-autoupdate } # S2
+    - { role: claude-config, tags: claude-config }     # S11 + RTK + code-nav + style

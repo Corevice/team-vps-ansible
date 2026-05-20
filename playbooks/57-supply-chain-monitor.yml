@@ -1,0 +1,6 @@
+---
+- name: Supply-chain attack early detection (auditd + perms + advisory)
+  hosts: vps
+  become: true
+  roles:
+    - { role: supply-chain-monitor, tags: supply-chain-monitor }

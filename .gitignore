@@ -1,0 +1,37 @@
+# Ansible
+.ansible_facts_cache/
+.vault_pass
+*.retry
+
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.*       # backups (timestamped)
+**/*.tfvars
+!**/*.tfvars.example
+**/crash.log
+
+# Sensitive content — committed only as .example
+inventory/host_vars/*.yml
+!inventory/host_vars/*.example
+inventory/hosts.yml
+!inventory/hosts.yml.example
+members.yml
+!members.yml.example
+group_vars/vps/qwen-keys.yml
+!group_vars/vps/*.example
+
+# step-ca cert (per-org, not for OSS)
+scripts/step-ca-root.crt
+terraform/aws/scripts/step-ca-root.crt
+
+# Generated SSH keypairs and welcome kits
+keys/
+dist/
+secrets/
+
+# Local
+*.log
+*.swp
+.DS_Store

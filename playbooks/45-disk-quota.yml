@@ -1,0 +1,11 @@
+---
+# Per-user disk quota for VPS owner
+# 300 GB soft / 350 GB hard
+#
+# IMPORTANT: this modifies /etc/fstab and remounts /. Test on 1 VPS first.
+
+- name: Apply disk quota
+  hosts: vps
+  become: true
+  roles:
+    - { role: disk-quota, tags: disk-quota }

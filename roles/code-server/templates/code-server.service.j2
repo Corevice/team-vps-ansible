@@ -1,0 +1,20 @@
+[Unit]
+Description=code-server (Codens VPS)
+After=network.target cloudflared.service
+
+[Service]
+Type=exec
+User={{ owner }}
+WorkingDirectory=/home/{{ owner }}
+Environment=HOME=/home/{{ owner }}
+ExecStart=/usr/bin/code-server --auth none --bind-addr 127.0.0.1:8080 --disable-telemetry
+Restart=on-failure
+RestartSec=5
+
+# 注: 元々 NoNewPrivileges / ProtectSystem / ProtectHome=read-only を入れていたが、
+# これらは sudo 不可・パッケージインストール不可になり dev 用途に合わないため除去。
+# code-server は CF Access (per-user policy) と --auth none の組み合わせで保護される前提。
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+---
+# WARP Virtual IP: loopback に仮想 IP を付与して warp-routing の受け口にする。
+# このあと 40-cloudflare-tunnel.yml で cloudflared 再起動すれば warp-routing 有効化。
+
+- name: WARP virtual IP on loopback
+  hosts: vps
+  become: true
+  roles:
+    - warp-vip

@@ -1,0 +1,6 @@
+---
+- name: restart auditd
+  # auditd is finicky — `systemctl restart` often fails because it disowns
+  # the kernel netlink socket. Use augenrules to reload rules in place.
+  command: augenrules --load
+  changed_when: true

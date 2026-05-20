@@ -1,0 +1,30 @@
+{
+  "_comment": "Managed by ansible supply-chain-monitor role. Manual edits will be overwritten.",
+
+  "security.workspace.trust.enabled": true,
+  "security.workspace.trust.startupPrompt": "once",
+  "security.workspace.trust.banner": "always",
+  "security.workspace.trust.untrustedFiles": "prompt",
+  "security.workspace.trust.emptyWindow": false,
+
+  "extensions.autoUpdate": false,
+  "extensions.autoCheckUpdates": true,
+  "extensions.ignoreRecommendations": false,
+
+  "telemetry.telemetryLevel": "off",
+  "update.mode": "none",
+
+  "http.proxyStrictSSL": true,
+  "git.allowForcePush": false,
+  "git.confirmSync": true,
+  "git.autofetch": true,
+
+  "terminal.integrated.scrollback": 10000,
+  "terminal.integrated.shellIntegration.enabled": true,
+
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true
+  }
+}

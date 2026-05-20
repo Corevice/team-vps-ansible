@@ -1,0 +1,21 @@
+---
+- name: monit package
+  apt:
+    name: monit
+    state: present
+
+- name: monit config
+  template:
+    src: monitrc.j2
+    dest: /etc/monit/monitrc
+    owner: root
+    group: root
+    mode: "0700"
+    validate: monit -t -c %s
+  notify: restart monit
+
+- name: monit enable + start
+  systemd:
+    name: monit
+    enabled: true
+    state: started

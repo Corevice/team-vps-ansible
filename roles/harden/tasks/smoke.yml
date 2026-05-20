@@ -1,0 +1,41 @@
+---
+# Final smoke test (Task 10)
+- name: "smoke: ufw status (incoming default deny, allow 22 + 53829)"
+  command: ufw status verbose
+  register: ufw_status
+  changed_when: false
+
+- name: "smoke: ufw policy assertion"
+  assert:
+    that:
+      - "'Default: deny (incoming)' in ufw_status.stdout"
+      - "'22/tcp' in ufw_status.stdout"
+      - "'53829/tcp' in ufw_status.stdout"
+
+- name: "smoke: sshd listen check"
+  shell: "ss -tlnp | grep sshd"
+  register: ss_out
+  changed_when: false
+
+- name: "smoke: sshd 127.0.0.1:22 + 0.0.0.0:53829"
+  assert:
+    that:
+      - "'127.0.0.1:22' in ss_out.stdout"
+      - "'0.0.0.0:53829' in ss_out.stdout or ':::53829' in ss_out.stdout"
+
+- name: "smoke: PasswordAuthentication no"
+  shell: "sshd -T 2>/dev/null | grep -E '^passwordauthentication'"
+  register: pwauth_check
+  changed_when: false
+  failed_when: "'passwordauthentication no' not in pwauth_check.stdout"
+
+- name: "smoke: Cloud Firewall has 0 inbound allow rules (excluding break-glass)"
+  delegate_to: localhost
+  become: false
+  shell: |
+    cntb get firewallRule --firewallId {{ cloud_firewall_id }} --output json | \
+      jq -r '[.[] | select(.direction == "INBOUND" and .action == "ACCEPT") |
+              select(.description | startswith("harden-bootstrap-") | not)] | length'
+  register: inbound_count
+  failed_when: inbound_count.stdout | int > 0
+  changed_when: false

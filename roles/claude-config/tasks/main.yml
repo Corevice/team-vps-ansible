@@ -1,0 +1,107 @@
+---
+# Claude Code 共通設定 (settings / commands / skills / plugins) を
+# 各 VPS の owner の ~/.claude/ に配置する
+#
+# 配布元: roles/claude-config/files/claude-home/
+# 配布先: /home/<owner>/.claude/
+#
+# Note:
+# - source に該当ファイル/ディレクトリが無い項目は skip
+# - 既存の owner 側の差分は **上書き** (idempotent)
+# - user 固有の state (sessions, todos, telemetry, history.jsonl 等) には触らない
+
+- name: Ensure ~/.claude exists
+  file:
+    path: "{{ claude_home_base }}"
+    state: directory
+    owner: "{{ owner }}"
+    group: "{{ owner }}"
+    mode: "0755"
+
+- name: Check which source items exist
+  delegate_to: localhost
+  become: false
+  run_once: true
+  stat:
+    path: "{{ playbook_dir }}/../roles/claude-config/files/claude-home/{{ item | regex_replace('/$', '') }}"
+  register: claude_source_stat
+  loop: "{{ claude_config_items }}"
+
+- name: Copy each configured item (only if source exists)
+  copy:
+    src: "claude-home/{{ item.item }}"
+    dest: "{{ claude_home_base }}/{{ item.item | regex_replace('/$', '') }}"
+    owner: "{{ owner }}"
+    group: "{{ owner }}"
+    mode: preserve
+    directory_mode: "0755"
+  when: item.stat.exists
+  loop: "{{ claude_source_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# Hook scripts ship with mode preserve from source, but the source repo on a
+# Mac may have lost the +x bit on git checkout. Force +x on every .sh under
+# hooks/ to guarantee they're executable on the VPS.
+- name: Ensure hook scripts are executable
+  file:
+    path: "{{ claude_home_base }}/hooks"
+    mode: "0755"
+    recurse: true
+    owner: "{{ owner }}"
+    group: "{{ owner }}"
+  failed_when: false  # ok if hooks/ dir wasn't deployed (older role versions)
+
+# ---- Qwen gateway pre-warm cron (2026-04-26) ----
+# Single warmup curl every weekday at 09:05 JST (gateway pod cron-starts at
+# 08:50, takes ~9 min to be healthy). Fires-and-forgets — failure tolerant.
+- name: Cron — pre-warm qwen gateway every weekday morning
+  cron:
+    name: "qwen-gateway-pre-warm"
+    user: "{{ owner }}"
+    minute: "5"
+    hour: "9"
+    weekday: "1-5"
+    job: "{{ claude_home_base }}/hooks/pre-warm-qwen-gateway.sh >> {{ claude_home_base }}/hooks/pre-warm.log 2>&1"
+  failed_when: false  # ok if owner has no crontab yet on first run
+
+# ---- claude-qwen / claude-glm aliases: 各 owner の .bashrc / .zshrc に追記 ----
+# idempotent (blockinfile の marker で再実行時も重複追加されない)
+# Gateway は現在 Qwen3.6-27B-FP8 を serve (2026-04-26 に GLM-4.7-Flash を試験
+# したが Claude Code tool-heavy ワークロードでは Qwen のほうが安定したためロール
+# バック)。claude-glm alias は GLM 試験時に VPS 配布済みなので互換のため残す。
+# 同じ script (claude-qwen.sh) を呼ぶ (env override で gateway URL/MODEL 切替可)。
+- name: Register claude-qwen / claude-glm aliases in {{ owner }}'s shell rc
+  blockinfile:
+    path: "/home/{{ owner }}/{{ item }}"
+    marker: "# {mark} ANSIBLE MANAGED: claude-qwen alias"
+    block: |
+      # Self-hosted gateway (Qwen3.6-27B-FP8 on RunPod H100 NVL).
+      # Both aliases run the same script — claude-glm kept for backward compat
+      # from the 2026-04-26 GLM-4.7-Flash trial.
+      alias claude-qwen="$HOME/.claude/scripts/claude-qwen.sh"
+      alias claude-glm="$HOME/.claude/scripts/claude-qwen.sh"
+    owner: "{{ owner }}"
+    group: "{{ owner }}"
+    create: false
+  loop:
+    - .bashrc
+    - .zshrc
+  loop_control:
+    label: "~/{{ item }}"
+  failed_when: false  # .zshrc が無い owner (まだ zsh 未導入) で失敗しても進める
+
+# ---- Per-VPS templated claude-qwen.sh with owner-specific gateway key ----
+# Overwrites the shared copy with a host-specific version that has the owner's
+# per-VPS API key baked in. The nginx in front of the gateway maps each key to
+# the owner identity for audit logging.
+- name: Deploy per-host claude-qwen.sh with owner-specific gateway key
+  template:
+    src: claude-qwen.sh.j2
+    dest: "{{ claude_home_base }}/scripts/claude-qwen.sh"
+    owner: "{{ owner }}"
+    group: "{{ owner }}"
+    mode: "0755"
+  when:
+    - qwen_vps_keys is defined
+    - qwen_vps_keys[owner] is defined

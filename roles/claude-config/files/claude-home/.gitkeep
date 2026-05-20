@@ -1,0 +1,12 @@
+# このディレクトリに配布したい Claude Code 設定を置く
+#
+# 例:
+#   claude-home/
+#   ├── settings.json
+#   ├── CLAUDE.md
+#   ├── commands/
+#   │   └── my-cmd.md
+#   ├── skills/
+#   │   └── my-skill/
+#   │       └── SKILL.md
+#   └── plugins/   (※ secret が含まれないこと)

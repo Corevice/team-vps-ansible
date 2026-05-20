@@ -1,0 +1,28 @@
+---
+# Codens VPS — 全 playbook を順次実行
+# 通常は phase ごとに個別実行 (README §初期構築手順 参照)
+# このファイルは Step D (アプリ層) を一括適用するためのもの
+
+- import_playbook: playbooks/30-dev-tools.yml
+  tags: dev-tools
+
+- import_playbook: playbooks/42-warp-vip.yml
+  tags: warp-vip
+
+- import_playbook: playbooks/57-supply-chain-monitor.yml
+  tags: supply-chain-monitor
+
+- import_playbook: playbooks/60-monitoring.yml
+  tags: monitoring
+
+- import_playbook: playbooks/70-log-shipping.yml
+  tags: log-shipping
+
+- import_playbook: playbooks/80-metadata.yml
+  tags: metadata
+
+- import_playbook: playbooks/95-aws-broker.yml
+  tags: aws-broker
+
+- import_playbook: playbooks/96-purple-agent-qwen-env.yml
+  tags: purple-agent-qwen-env

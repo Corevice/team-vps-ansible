@@ -1,0 +1,19 @@
+---
+- name: reload sshd
+  systemd:
+    name: ssh
+    state: reloaded
+
+- name: restart fail2ban
+  systemd:
+    name: fail2ban
+    state: restarted
+
+- name: reload sysctl
+  command: sysctl --system
+  changed_when: false
+
+- name: restart auditd
+  systemd:
+    name: auditd
+    state: restarted

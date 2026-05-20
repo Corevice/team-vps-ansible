@@ -1,0 +1,56 @@
+#!/bin/bash
+# Codens log-ship health check (F12, F21)
+# monit が check program で呼び出す
+# Exit 0: healthy / Exit 1: unhealthy (monit がアラート)
+#
+# F21: 必須 metric 欠落 / 非数値 / clock skew / queue drift で fail (silent pass 防止)
+
+set -u
+
+PROM_FILE="/var/lib/node_exporter/textfile_collector/codens_log_ship.prom"
+FAILED_DIR="/var/lib/codens-log-ship/failed"
+
+fail() { echo "UNHEALTHY: $1" >&2; exit 1; }
+
+# 1. prom file 存在
+[ -f "$PROM_FILE" ] || fail "prom file missing: $PROM_FILE"
+
+# 2. 必須 metric 取得 helper
+get_metric() {
+  local key="$1"
+  local val
+  val=$(awk -v k="$key" '$1 == k {print $2; found=1; exit} END{if (!found) exit 1}' "$PROM_FILE") \
+    || fail "missing metric: $key"
+  case "$val" in
+    ''|*[!0-9.-]*) fail "metric $key has non-numeric value: $val" ;;
+  esac
+  echo "$val"
+}
+
+# 3. credential 取得 OK か
+CRED_OK=$(get_metric codens_log_ship_credential_acquired) || exit 1
+[ "$CRED_OK" = "1" ] || fail "credential acquisition failed (flag=$CRED_OK)"
+
+# 4. last_run_epoch が 2h 以内
+LAST_RUN=$(get_metric codens_log_ship_last_run_epoch) || exit 1
+NOW=$(date -u +%s)
+AGE=$((NOW - LAST_RUN))
+[ "$AGE" -le 7200 ] || fail "stale last_run (age=${AGE}s, limit=7200s)"
+[ "$AGE" -ge 0 ]    || fail "last_run is in the future (age=${AGE}s, clock skew?)"
+
+# 5. failed_queue_size
+QUEUE_SIZE=$(get_metric codens_log_ship_failed_queue_size) || exit 1
+[ "$QUEUE_SIZE" -lt 100 ] || fail "failed queue too large ($QUEUE_SIZE)"
+
+# 6. 実 failed/ 数も照合 (drift 検知)
+ACTUAL_QUEUE=$(find "$FAILED_DIR" -type f 2>/dev/null | wc -l)
+[ "$ACTUAL_QUEUE" -lt 100 ] || fail "actual failed queue too large ($ACTUAL_QUEUE)"
+DRIFT=$((ACTUAL_QUEUE - QUEUE_SIZE))
+[ "${DRIFT#-}" -le 10 ] || fail "queue drift too large (prom=$QUEUE_SIZE actual=$ACTUAL_QUEUE)"
+
+# 7. ディスク残容量
+DISK_AVAIL=$(df --output=avail /var | tail -1)
+[ "$DISK_AVAIL" -ge 1048576 ] || fail "disk low ($DISK_AVAIL KB on /var)"
+
+echo "healthy"
+exit 0

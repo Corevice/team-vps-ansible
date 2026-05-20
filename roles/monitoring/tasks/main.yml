@@ -1,0 +1,9 @@
+---
+- import_tasks: postfix.yml
+  tags: postfix-creds
+
+- import_tasks: monit.yml
+  tags: monit
+
+- import_tasks: node_exporter.yml
+  tags: node_exporter

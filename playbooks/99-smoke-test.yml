@@ -1,0 +1,108 @@
+---
+# E2E smoke test (Step E)
+# 全 11 台で実行、失敗が 1 つでもあれば red
+
+- name: Smoke test (all hosts)
+  hosts: vps
+  become: true
+  any_errors_fatal: false
+  gather_facts: true
+
+  tasks:
+    # ===== Network / SSH =====
+    - name: ufw status
+      command: ufw status verbose
+      register: ufw_status
+      changed_when: false
+
+    - name: ufw assertion
+      assert:
+        that:
+          - "'Default: deny (incoming)' in ufw_status.stdout"
+          - "'22/tcp' in ufw_status.stdout"
+          - "'53829/tcp' in ufw_status.stdout"
+        fail_msg: "ufw config incorrect on {{ inventory_hostname }}"
+
+    - name: sshd listen
+      shell: "ss -tlnp | grep -E '(127.0.0.1|0.0.0.0).*sshd|sshd.*:(22|53829)'"
+      register: ss_check
+      changed_when: false
+
+    # ===== cloudflared =====
+    - name: cloudflared service active
+      systemd:
+        name: cloudflared
+      register: cfd
+      failed_when: cfd.status.ActiveState != "active"
+
+    # ===== code-server =====
+    - name: code-server service active
+      systemd:
+        name: code-server
+      register: cs
+      failed_when: cs.status.ActiveState != "active"
+
+    - name: code-server reachable on 127.0.0.1:8080
+      uri:
+        url: http://127.0.0.1:8080
+        status_code: [200, 302, 401, 403]
+
+    # ===== docker =====
+    - name: docker hello-world
+      shell: docker run --rm hello-world
+      register: docker_test
+      changed_when: false
+      become: true
+      become_user: "{{ owner }}"
+
+    # ===== monit =====
+    - name: monit running
+      systemd:
+        name: monit
+      register: monit_check
+      failed_when: monit_check.status.ActiveState != "active"
+
+    # ===== log-shipping =====
+    - name: log-ship timer enabled
+      systemd:
+        name: codens-log-ship.timer
+      register: ls_timer
+      failed_when: ls_timer.status.ActiveState != "active"
+
+    - name: prom file exists
+      stat:
+        path: /var/lib/node_exporter/textfile_collector/codens_log_ship.prom
+      register: prom_stat
+
+    - name: log-ship health script returns 0
+      command: /usr/local/bin/codens-log-ship-health
+      register: health
+      changed_when: false
+      when: prom_stat.stat.exists
+
+    # ===== metadata =====
+    - name: codens-host.json exists
+      stat:
+        path: /etc/codens-host.json
+      register: host_meta
+
+    - name: codens-host.json content
+      command: jq -r .host_id /etc/codens-host.json
+      register: host_id_check
+      changed_when: false
+      failed_when: host_id_check.stdout != inventory_hostname
+
+  # ===== Cloud Firewall =====
+  post_tasks:
+    - name: Cloud Firewall has 0 inbound allow rules (excluding break-glass / harden-bootstrap)
+      delegate_to: localhost
+      become: false
+      run_once: true
+      shell: |
+        cntb get firewallRule --firewallId {{ contabo_firewall_id }} --output json | \
+          jq -r '[.[] | select(.direction == "INBOUND" and .action == "ACCEPT") |
+                 select(.description | startswith("harden-bootstrap-") | not) |
+                 select(.description | startswith("break-glass-") | not)] | length'
+      register: inbound_count
+      failed_when: inbound_count.stdout | int > 0
+      changed_when: false

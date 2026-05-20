@@ -1,0 +1,70 @@
+#!/bin/bash
+# Codens Docker Firewall — block external NIC → container traffic
+#
+# Why: docker-compose binds with 0.0.0.0 explicitly, bypassing the daemon.json
+# "ip": "127.0.0.1" setting. This script adds DOCKER-USER chain rules as a
+# host-layer defense-in-depth, in case Contabo Cloud Firewall (network
+# perimeter) drifts or is misconfigured (see project memory
+# `project_contabo_firewall_drift.md` 2026-04-23).
+#
+# Effect:
+#   - External (eth0) → container new connection: DROP
+#   - External (eth0) → container with ESTABLISHED/RELATED: RETURN (response packets allowed)
+#   - Loopback / SSH tunnel: unaffected (not on eth0)
+#   - Container → external (outbound): unaffected (different direction)
+#   - Container → container (bridge): unaffected (not eth0)
+#
+# Members can still expose services intentionally via:
+#   - Cloudflare Tunnel ingress (operator-managed via terraform/cloudflare/tunnels.tf)
+#   - SSH local port forward (ssh -L 3000:localhost:3000 codens-vps)
+#   - VS Code Remote-SSH Forwarded Ports
+
+set -euo pipefail
+
+# Detect external NIC (the one with the IPv4 default route)
+EXT_IF=$(ip -o -4 route show to default | awk '{print $5}' | head -1)
+if [ -z "$EXT_IF" ]; then
+  echo "ERROR: cannot detect external interface" >&2
+  exit 1
+fi
+
+flush_rules() {
+  while iptables -D DOCKER-USER -i "$EXT_IF" -j DROP 2>/dev/null; do :; done
+  while iptables -D DOCKER-USER -i "$EXT_IF" -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN 2>/dev/null; do :; done
+}
+
+case "${1:-start}" in
+  start)
+    # Ensure DOCKER-USER chain exists (it may not if docker hasn't started yet)
+    iptables -L DOCKER-USER -n >/dev/null 2>&1 || {
+      echo "DOCKER-USER chain not present — docker.service may not be running" >&2
+      exit 1
+    }
+    flush_rules
+    # Order matters!  `iptables -I` inserts at position 1, pushing existing
+    # rules down. We want the final chain to be:
+    #   1. RELATED,ESTABLISHED  -> RETURN   (let response traffic through)
+    #   2. (anything else on eth0) -> DROP  (block external new connections)
+    #   3. ... default RETURN inherited from Docker
+    # So insert DROP first, then RELATED,ESTABLISHED — the latter ends up at
+    # position 1 (fired first). Reversing this order (the original 2026-04-26
+    # bug, observed by daffaalfandy 2026-04-27) put DROP at position 1,
+    # killing return packets of container-initiated outbound connections
+    # (Cognito, Stripe, etc) which never made it back to the originating
+    # container, so logins / API calls hung.
+    iptables -I DOCKER-USER -i "$EXT_IF" -j DROP
+    iptables -I DOCKER-USER -i "$EXT_IF" -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+    echo "codens-docker-firewall: applied rules on $EXT_IF"
+    ;;
+  stop)
+    flush_rules
+    echo "codens-docker-firewall: removed rules from $EXT_IF"
+    ;;
+  status)
+    iptables -L DOCKER-USER -n -v --line-numbers
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|status}" >&2
+    exit 1
+    ;;
+esac

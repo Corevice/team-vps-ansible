@@ -1,0 +1,172 @@
+---
+- name: aws cli v2 install (snap or download)
+  ansible.builtin.shell: |
+    set -e
+    if ! command -v aws >/dev/null; then
+      cd /tmp
+      curl "https://awscli.amazonaws.com/awscli-exe-linux-{{ ansible_architecture }}.zip" -o awscliv2.zip
+      unzip -q awscliv2.zip
+      ./aws/install
+      rm -rf awscliv2.zip aws
+    fi
+  args:
+    creates: /usr/local/bin/aws
+
+- name: aws_signing_helper download (Roles Anywhere credential helper)
+  ansible.builtin.get_url:
+    url: "https://rolesanywhere.amazonaws.com/releases/1.5.0/X86_64/Linux/aws_signing_helper"
+    dest: /usr/local/bin/aws_signing_helper
+    mode: "0755"
+  when: ansible_architecture == "x86_64"
+
+- name: /etc/codens config dir
+  file:
+    path: /etc/codens
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: log-ship.env (Roles Anywhere ARNs)
+  template:
+    src: log-ship.env.j2
+    dest: /etc/codens/log-ship.env
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: step-cli install (証明書更新クライアント)
+  ansible.builtin.shell: |
+    set -e
+    if ! command -v step >/dev/null; then
+      cd /tmp
+      wget -q "https://dl.smallstep.com/cli/docs-cli-install/latest/step-cli_amd64.deb" -O step.deb
+      dpkg -i step.deb
+      rm step.deb
+    fi
+  args:
+    creates: /usr/bin/step
+
+- name: step-ca trust root
+  ansible.builtin.shell: |
+    step ca bootstrap --ca-url {{ step_ca_url }} \
+      --fingerprint {{ step_ca_fingerprint }} --force
+    step ca root /etc/codens/step-ca-root.pem
+  args:
+    creates: /etc/codens/step-ca-root.pem
+
+- name: step-ca で initial certificate を取得
+  ansible.builtin.shell: |
+    step ca certificate "{{ inventory_hostname }}" \
+      /etc/codens/vps-cert.pem /etc/codens/vps-key.pem \
+      --provisioner ansible-bootstrap \
+      --provisioner-password-file /etc/codens/provisioner.pw
+  args:
+    creates: /etc/codens/vps-cert.pem
+  no_log: true
+
+- name: step-ca renew systemd timer (90日 expiry を 60日で renew)
+  copy:
+    dest: /etc/systemd/system/step-renew.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=step-ca certificate renew
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/step ca renew /etc/codens/vps-cert.pem /etc/codens/vps-key.pem --force --expires-in 720h
+
+- name: step-renew timer
+  copy:
+    dest: /etc/systemd/system/step-renew.timer
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=step-ca certificate renew (daily)
+
+      [Timer]
+      OnCalendar=daily
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+- name: step-renew enable
+  systemd:
+    name: step-renew.timer
+    enabled: true
+    state: started
+    daemon_reload: yes
+
+- name: codens-log-ship script
+  copy:
+    src: codens-log-ship
+    dest: /usr/local/bin/codens-log-ship
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: codens-log-ship-health script
+  copy:
+    src: codens-log-ship-health
+    dest: /usr/local/bin/codens-log-ship-health
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: failed/ + log dirs
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /var/lib/codens-log-ship/failed
+    - /var/log/codens-log-ship
+
+- name: codens-log-ship.service
+  copy:
+    dest: /etc/systemd/system/codens-log-ship.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Ship Claude/auditd logs to S3
+
+      [Service]
+      Type=oneshot
+      EnvironmentFile=/etc/codens/log-ship.env
+      ExecStart=/usr/local/bin/codens-log-ship
+      Nice=10
+
+- name: codens-log-ship.timer (hourly)
+  copy:
+    dest: /etc/systemd/system/codens-log-ship.timer
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Ship Claude/auditd logs to S3 hourly
+
+      [Timer]
+      OnBootSec=5min
+      OnUnitActiveSec=1h
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+- name: log-ship timer enable
+  systemd:
+    name: codens-log-ship.timer
+    enabled: true
+    state: started
+    daemon_reload: yes

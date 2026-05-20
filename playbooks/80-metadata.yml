@@ -1,0 +1,12 @@
+---
+- name: Place /etc/codens-host.json (D11)
+  hosts: vps
+  become: true
+  tasks:
+    - name: codens-host.json
+      template:
+        src: ../templates/codens-host.json.j2
+        dest: /etc/codens-host.json
+        owner: root
+        group: root
+        mode: "0644"

@@ -1,0 +1,37 @@
+---
+- name: auditd packages
+  apt:
+    name: [auditd, audispd-plugins]
+    state: present
+
+- name: auditd rules (basic — file integrity, login, sudo)
+  copy:
+    dest: /etc/audit/rules.d/99-codens.rules
+    owner: root
+    group: root
+    mode: "0640"
+    content: |
+      # File integrity
+      -w /etc/passwd -p wa -k passwd_changes
+      -w /etc/shadow -p wa -k shadow_changes
+      -w /etc/sudoers -p wa -k sudoers_changes
+      -w /etc/ssh/sshd_config -p wa -k sshd_config_changes
+      -w /etc/cloudflared -p wa -k cloudflared_changes
+
+      # Login
+      -w /var/log/auth.log -p wa -k auth_log
+      -w /var/log/wtmp -p wa -k logins
+
+      # Privilege escalation
+      -a always,exit -F arch=b64 -S execve -F euid=0 -k root_command
+
+      # Network config
+      -w /etc/hosts -p wa -k hosts_changes
+      -w /etc/network/ -p wa -k network_changes
+  notify: restart auditd
+
+- name: auditd enable + start
+  systemd:
+    name: auditd
+    enabled: true
+    state: started

@@ -1,0 +1,73 @@
+---
+# Install headless Chrome + @playwright/cli (Microsoft 公式) for the owner
+
+# ===== Google Chrome (system-wide) =====
+
+- name: Google Chrome apt signing key
+  ansible.builtin.get_url:
+    url: https://dl.google.com/linux/linux_signing_key.pub
+    dest: /etc/apt/keyrings/google-chrome.asc
+    mode: "0644"
+
+- name: Google Chrome apt repo
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.asc] https://dl.google.com/linux/chrome/deb/ stable main"
+    filename: google-chrome
+    state: present
+
+- name: Headless deps (fonts + libs Chrome wants)
+  apt:
+    name:
+      - "{{ chrome_apt_package }}"
+      - fonts-liberation
+      - libu2f-udev
+      - xdg-utils
+    state: present
+    update_cache: yes
+
+- name: Verify Chrome installed
+  command: /usr/bin/google-chrome-stable --version
+  register: chrome_version
+  changed_when: false
+
+- name: Chrome version
+  debug:
+    var: chrome_version.stdout
+
+# ===== @playwright/cli (owner user, via mise node) =====
+
+- name: "Resolve mise-managed node bin path"
+  become: true
+  become_user: "{{ owner }}"
+  ansible.builtin.shell: |
+    ~/.local/bin/mise which node 2>/dev/null | xargs dirname
+  args:
+    executable: /bin/bash
+  register: mise_node_bin
+  changed_when: false
+
+- name: "Install @playwright/cli@{{ playwright_cli_version }} (owner-scoped)"
+  become: true
+  become_user: "{{ owner }}"
+  ansible.builtin.shell: |
+    export PATH="{{ mise_node_bin.stdout }}:$HOME/.local/bin:$PATH"
+    npm install -g @playwright/cli@{{ playwright_cli_version }} 2>&1
+  args:
+    executable: /bin/bash
+  register: pwcli_install
+  changed_when: "'added ' in pwcli_install.stdout or 'changed ' in pwcli_install.stdout"
+
+- name: "Verify playwright-cli"
+  become: true
+  become_user: "{{ owner }}"
+  ansible.builtin.shell: |
+    export PATH="{{ mise_node_bin.stdout }}:$HOME/.local/bin:$PATH"
+    playwright-cli --version 2>&1 | head -1
+  args:
+    executable: /bin/bash
+  register: pwcli_version
+  changed_when: false
+
+- name: "playwright-cli version"
+  debug:
+    var: pwcli_version.stdout

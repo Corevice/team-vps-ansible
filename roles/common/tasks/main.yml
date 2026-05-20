@@ -1,0 +1,29 @@
+---
+# Common role — apt update, timezone, base packages
+# 他 role の前提として呼ばれる
+
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ timezone }}"
+
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Common base packages
+  apt:
+    name: "{{ apt_packages_common }}"
+    state: present
+
+- name: chrony enable
+  systemd:
+    name: chrony
+    enabled: true
+    state: started
+
+- name: etckeeper init
+  ansible.builtin.shell: |
+    cd /etc && etckeeper init && etckeeper commit "initial commit"
+  args:
+    creates: /etc/.etckeeper

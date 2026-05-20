@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars and fill in real values.
+# terraform.tfvars is gitignored (never commit secrets).
+client_id = ""  # FILL IN
+client_secret = ""  # FILL IN
+user = ""  # FILL IN
+password = ""  # FILL IN

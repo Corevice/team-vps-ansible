@@ -1,0 +1,6 @@
+---
+- name: Install aws-broker (AI-credential isolation wrapper for aws-cli)
+  hosts: vps
+  become: true
+  roles:
+    - { role: aws-broker, tags: aws-broker }

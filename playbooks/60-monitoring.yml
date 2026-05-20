@@ -1,0 +1,6 @@
+---
+- name: Install monit + postfix (SES relay) + node_exporter
+  hosts: vps
+  become: true
+  roles:
+    - { role: monitoring, tags: ['monitoring', 'postfix-creds'] }

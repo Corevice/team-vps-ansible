@@ -1,0 +1,60 @@
+# Codens Team VPS — Member ↔ VPS Assignment
+#
+# このファイルは Terraform (cloudflare/, contabo/) と Ansible 両方から参照される
+# member slug は VPS hostname suffix、CF Access policy email、ユーザー名を兼ねる
+#
+# 編集後の必須ステップ:
+#   1. PR でレビュー (4-eyes)
+#   2. terraform plan で意図通りか確認
+#   3. terraform apply (cloudflare → contabo の順)
+#   4. ansible-playbook --limit <new_vps> site.yml
+#
+# 退職者対応: lifecycle_state を "decommissioned" に変更 (削除しない、監査用に残す)
+
+members:
+  alice:
+    owner_email: alice@corevice.com
+    display_name: Alice Example
+    contabo_instance_id: vps-instance-id-from-contabo-panel
+    public_ipv4: XX.XX.XX.XX
+    contabo_plan: "Cloud VPS 10"
+    region: eu-central
+    ssh_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... alice@laptop"
+    initial_root_pw_ref: "1Password://contabo-vps-alice-initial"
+    timezone: Asia/Tokyo
+    lifecycle_state: active     # active | decommissioned
+    provisioned_at: "2026-04-XX"
+    tags: ["dev-vps", "phase-1"]
+
+  bob:
+    owner_email: bob@corevice.com
+    display_name: Bob Example
+    contabo_instance_id: vps-instance-id-from-contabo-panel
+    public_ipv4: XX.XX.XX.XX
+    contabo_plan: "Cloud VPS 10"
+    region: eu-central
+    ssh_pubkey: "ssh-ed25519 ... bob@laptop"
+    initial_root_pw_ref: "1Password://contabo-vps-bob-initial"
+    timezone: Asia/Tokyo
+    lifecycle_state: active
+    provisioned_at: "2026-04-XX"
+    tags: ["dev-vps", "phase-1"]
+
+  # ... 残り 9 名
+
+# Operator (ops) の固定情報
+operator:
+  username: ops
+  email: ops@example.com
+  ssh_pubkey: "ssh-ed25519 ... ops@laptop"
+  # break-glass で Cloud Firewall を一時 allow する source IP
+  # static IP 必須 (A-3)。VPN exit IP でも可
+  management_ip: XX.XX.XX.XX
+
+# 共通設定
+common:
+  domain: vps.example.com         # ← A-6 で購入したドメインに置換
+  cloudflare_account_id: XXXXXXXX  # ← CF dashboard 右下から取得
+  aws_account_id: "123456789012"   # your AWS account ID
+  aws_region: us-east-1
+  team_id: corevice-main

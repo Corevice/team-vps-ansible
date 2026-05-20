@@ -1,0 +1,8 @@
+---
+# 1KB block 単位 (= 1024 bytes)
+# 300 GB = 300 * 1024 * 1024 = 314572800
+# 350 GB = 350 * 1024 * 1024 = 367001600
+quota_soft_kb: 314572800
+quota_hard_kb: 367001600
+quota_inode_soft: 0   # 0 = unlimited
+quota_inode_hard: 0

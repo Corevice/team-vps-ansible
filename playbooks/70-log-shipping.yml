@@ -1,0 +1,6 @@
+---
+- name: Install codens-log-ship (Claude/auditd → S3 via Roles Anywhere)
+  hosts: vps
+  become: true
+  roles:
+    - { role: log-shipping, tags: log-shipping }

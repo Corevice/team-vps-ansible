@@ -1,0 +1,48 @@
+---
+- name: fail2ban package
+  apt:
+    name: fail2ban
+    state: present
+
+- name: fail2ban jail (sshd 53829 対象)
+  copy:
+    dest: /etc/fail2ban/jail.d/sshd.local
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [sshd]
+      enabled = true
+      port = 22,53829
+      filter = sshd
+      logpath = /var/log/auth.log
+      maxretry = 5
+      findtime = 600
+      bantime = 3600
+      ignoreip = 127.0.0.1/8 ::1 {{ operator_management_ip }}/32
+  notify: restart fail2ban
+
+# S3: recidive jail — repeat offenders detected from fail2ban.log
+- name: fail2ban recidive jail (repeat offenders → 1 week ban)
+  copy:
+    dest: /etc/fail2ban/jail.d/recidive.local
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [recidive]
+      enabled = true
+      filter = recidive
+      logpath = /var/log/fail2ban.log
+      action = iptables-allports[name=recidive]
+      maxretry = 3
+      findtime = 86400      ; 1 day window
+      bantime = 604800      ; 7 day ban
+      ignoreip = 127.0.0.1/8 ::1 {{ operator_management_ip }}/32
+  notify: restart fail2ban
+
+- name: fail2ban enable
+  systemd:
+    name: fail2ban
+    enabled: true
+    state: started

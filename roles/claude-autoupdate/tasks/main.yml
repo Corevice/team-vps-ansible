@@ -1,0 +1,20 @@
+---
+# S2: weekly auto-update of Claude Code for the VPS owner
+# Sundays at 04:00 local time, runs `claude update` and logs.
+
+- name: Ensure log dir
+  file:
+    path: "/var/log/claude-autoupdate"
+    state: directory
+    owner: "{{ owner }}"
+    group: "{{ owner }}"
+    mode: "0755"
+
+- name: Cron job — weekly `claude update` for owner
+  ansible.builtin.cron:
+    name: "claude code weekly auto-update"
+    user: "{{ owner }}"
+    weekday: "0"
+    hour: "4"
+    minute: "13"          # offset to spread load across hosts
+    job: "/home/{{ owner }}/.local/bin/claude update >> /var/log/claude-autoupdate/{{ owner }}.log 2>&1"

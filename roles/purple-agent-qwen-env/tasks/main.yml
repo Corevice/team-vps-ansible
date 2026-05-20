@@ -1,0 +1,40 @@
+---
+# Pre-stage /etc/purple-agent.env on every VPS with Qwen gateway config.
+#
+# When purple-codens deploys the agent service later (creates `purple` user
+# + systemd unit), this env file is already in place so Qwen routing works
+# without an extra bootstrap step. Until purple-agent is deployed, the file
+# simply sits unused (no service reads it).
+
+- name: Check if purple group exists (set after purple-agent service deploy)
+  ansible.builtin.command: getent group purple
+  register: purple_group_check
+  changed_when: false
+  failed_when: false
+
+- name: Set env file group based on purple-agent deploy state
+  ansible.builtin.set_fact:
+    purple_env_group: "{{ 'purple' if purple_group_check.rc == 0 else 'root' }}"
+    purple_env_mode: "{{ '0640' if purple_group_check.rc == 0 else '0600' }}"
+
+- name: Deploy /etc/purple-agent.env (Qwen gateway config)
+  ansible.builtin.template:
+    src: purple-agent.env.j2
+    dest: /etc/purple-agent.env
+    owner: root
+    group: "{{ purple_env_group }}"
+    mode: "{{ purple_env_mode }}"
+  when: qwen_vps_keys is defined and qwen_vps_keys[owner] is defined
+  register: env_file_result
+
+- name: Reload purple-agent service (only if currently active)
+  ansible.builtin.systemd:
+    name: purple-agent
+    state: reloaded
+  register: reload_result
+  failed_when:
+    - reload_result.failed
+    - "'Unit purple-agent.service not loaded' not in (reload_result.msg | default(''))"
+    - "'Could not find the requested service' not in (reload_result.msg | default(''))"
+  when: env_file_result.changed | default(false)
+  ignore_errors: true  # systemd reload of inactive unit is non-fatal here
