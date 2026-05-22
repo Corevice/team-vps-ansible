@@ -1,0 +1,30 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Ansible
+        run: |
+          pip install ansible ansible-lint
+
+      - name: Run Ansible syntax check
+        run: ansible-playbook site.yml --syntax-check
+
+      - name: Run playbook with timing
+        run: |
+          ansible-playbook site.yml -i inventory/hosts.yml --list-tasks
+          time ansible-playbook site.yml -i inventory/hosts.yml --check
