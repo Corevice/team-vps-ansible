@@ -75,13 +75,16 @@ PROMPT
 
 詳細: `~/.claude/skills/escalate-to-claude/SKILL.md`
 
-## gateway 実装詳細
+## gateway 実装詳細 (現世代 / 2026-06-03 更新)
 
-- Pod ID: `qbvnnk0acmjbdk` (RunPod L40S 48GB COMMUNITY)
-- モデル: Qwen/Qwen3.6-27B-FP8, 131K context, enforce-eager
-- ルーター: claude-code-router (CCR), Anthropic format を受けて vLLM に変換
-- 料金: Qwen 常時稼働 ~$570/月。Claude API は **誰も使わなければ $0**
-- 変更管理: `plans/qwen-llmgw/` に config 一式
+- Pod: 毎朝 **新規作成** (create/terminate スケジューラ。name `qwen-gateway`)
+- GPU: **RTX PRO 6000 Blackwell** 系統 (≥90GB, SECURE→COMMUNITY で空きを探索)
+- モデル: Qwen/Qwen3.6-27B-FP8, **262144 (256K) context**, MTP speculative decoding, CUDA graphs
+- ルーター: **nginx** (bearer→owner auth map, `/v1/messages` を vLLM に素通しプロキシ)
+  - ※ 旧世代は claude-code-router(CCR) / L40S 48GB / 131K / enforce-eager だった
+- 入口: `qwen-gw.corevice-vps.com` (Cloudflare tunnel `b2910379`)。pod が変わっても不変
+- 変更管理: **`plans/qwen-llmgw/`** に config 一式 + スケジューラ
+
 
 ## なぜ shared settings.json に入れないか
 

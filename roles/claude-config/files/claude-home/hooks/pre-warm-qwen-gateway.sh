@@ -12,7 +12,7 @@
 
 set -u
 
-GATEWAY_URL="${CLAUDE_QWEN_GATEWAY_URL:-https://sh9ica5r9qngch-4000.proxy.runpod.net}"
+GATEWAY_URL="${CLAUDE_QWEN_GATEWAY_URL:-https://qwen-gw.corevice-vps.com}"
 GATEWAY_TOKEN="${CLAUDE_QWEN_GATEWAY_TOKEN:-REPLACE_WITH_YOUR_QWEN_GATEWAY_TOKEN}"
 MODEL="${CLAUDE_QWEN_MODEL:-vllm-qwen,Qwen/Qwen3.6-27B-FP8}"
 

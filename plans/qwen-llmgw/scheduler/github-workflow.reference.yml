@@ -1,0 +1,53 @@
+name: qwen-gateway-scheduler
+
+# Qwen gateway pod を平日 9:00-21:00 JST だけ稼働させる (コスト削減)。
+# cron は UTC: 00:00 UTC = 09:00 JST / 12:00 UTC = 21:00 JST。Mon-Fri。
+# ※ GitHub Actions の schedule は数分〜十数分遅延することがある (best-effort)。
+on:
+  schedule:
+    - cron: "0 0 * * 1-5"    # 09:00 JST 平日 → up
+    - cron: "0 12 * * 1-5"   # 21:00 JST 平日 → down
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "up または down"
+        required: true
+        default: "up"
+        type: choice
+        options: ["up", "down"]
+
+concurrency:
+  group: qwen-gateway-scheduler
+  cancel-in-progress: false
+
+jobs:
+  schedule:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide action
+        id: act
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "action=${{ inputs.action }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "0 0 * * 1-5" ]; then
+            echo "action=up" >> "$GITHUB_OUTPUT"
+          else
+            echo "action=down" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install SSH key (up only)
+        if: steps.act.outputs.action == 'up'
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.QWEN_POD_SSH_KEY }}" > ~/.ssh/qwen
+          chmod 600 ~/.ssh/qwen
+          ssh-keygen -y -f ~/.ssh/qwen > ~/.ssh/qwen.pub   # create が PUBLIC_KEY 用に .pub を読む
+
+      - name: Run scheduler
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          SSH_KEY_FILE: /home/runner/.ssh/qwen
+          CF_TUNNEL_TOKEN: ${{ secrets.CF_TUNNEL_TOKEN }}
+        run: bash gtm/infra/qwen-vllm/scheduler/qwen-pod-scheduler.sh "${{ steps.act.outputs.action }}"
