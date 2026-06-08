@@ -37,6 +37,12 @@ contabo_firewall_id: TODO_FROM_TERRAFORM_OUTPUT
 # Operator
 operator_email: ops@example.com
 operator_management_ip: XX.XX.XX.XX   # TODO: A-3 で確定した static IP
+# 運用者デプロイ鍵 (root / ansible ユーザーの authorized_keys に入る。公開鍵=非秘密)。
+# 2026-06-08 ローテーション: 旧 operator 鍵を紛失したため新規生成し、稼働中の全 VPS の
+# root に手動投入済み。秘密鍵は 1Password 保管。
+# ※ host_vars/<vps>.yml に旧 operator_ssh_pubkey の per-host 上書きが残っている場合は
+#    削除し、本 group 既定に統一すること(precedence: host_vars > group_vars)。
+operator_ssh_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINyA+LQiIsRGLMMpvQ5fWuY7/7m8QjUDK3wQZZQDI/yd ops@corevice.com (recovered master 20260607)"
 
 # OS
 os_distribution: ubuntu
