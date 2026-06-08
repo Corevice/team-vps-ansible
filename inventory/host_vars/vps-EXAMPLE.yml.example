@@ -8,7 +8,8 @@
 owner: example-slug              # short slug used in hostname (vps-<slug>)
 owner_email: user@example.com    # contact email for this VPS
 owner_ssh_pubkey: "ssh-ed25519 AAAA... user@example.com"
-operator_ssh_pubkey: "ssh-ed25519 AAAA... ops@example.com (deploy key)"
+# operator_ssh_pubkey は group_vars/all/public.yml の fleet 既定を使う(per-host 上書き不要)。
+# どうしても host 個別の鍵が要る場合のみここで上書きする。
 operator_management_ip: 203.0.113.1   # operator's static IP for SSH allowlist
 timezone: Asia/Tokyo
 vps_id: 1                        # unique 1-254, used for WARP virtual IP
